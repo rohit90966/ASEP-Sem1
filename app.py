@@ -1,21 +1,44 @@
 import os
+import requests
+import gdown
 from flask import Flask, request, jsonify, render_template
 from tensorflow.keras.models import load_model
 import numpy as np
 from PIL import Image
 import cohere
 
-# Configure Cohere API Key (Replace with your actual key)
-COHERE_API_KEY ="Hcci8rLMQbyjj8lfnknpQWwLs6tqYpCm9WFRtP1f"
+# Configure Cohere API Key (Set this as an environment variable for security)
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 co = cohere.Client(COHERE_API_KEY)
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Load the trained model
-model_path = 'E:/VScode/ASAP/Models/best_model.keras'
-model = load_model(model_path)
-print("Model input shape:", model.input_shape)
+# Google Drive File ID for the model
+FILE_ID = "13yrVVV-wXBM5q3rZdPAWfGROh6hMWoXx"
+MODEL_PATH = "static/models/best_model.keras"
+
+# Ensure necessary folders exist
+os.makedirs("static/uploads", exist_ok=True)
+os.makedirs("static/models", exist_ok=True)
+
+def download_model():
+    """Download model from Google Drive if not exists."""
+    if not os.path.exists(MODEL_PATH):
+        print("🔽 Downloading model from Google Drive...")
+        url = f"https://drive.google.com/uc?id={FILE_ID}"
+        gdown.download(url, MODEL_PATH, quiet=False)
+        print("✅ Model downloaded successfully!")
+    else:
+        print("✅ Model already exists, skipping download.")
+
+# Download and load model
+download_model()
+try:
+    model = load_model(MODEL_PATH)
+    print("✅ Model loaded successfully!")
+except Exception as e:
+    print(f"❌ Error loading model: {e}")
 
 # Class labels for plant diseases
 class_labels = {
@@ -59,20 +82,19 @@ class_labels = {
     37: 'Tomato___healthy'
 }
 
-# Ensure 'uploads' folder exists
-if not os.path.exists('static/uploads'):
-    os.makedirs('static/uploads')
-
 @app.route('/')
 def index():
     return render_template('index.html')
 
 def get_cohere_response(disease_name):
     """Get remedy suggestions from Cohere API for the detected disease."""
+    if not COHERE_API_KEY:
+        return "Cohere API key is missing. Set it as an environment variable."
+    
     try:
         prompt = f"What are the remedies for {disease_name} in plants?"
         response = co.generate(
-            model="command",  # Use "command" instead of "command-r"
+            model="command",  
             prompt=prompt,
             max_tokens=100
         )
@@ -84,14 +106,14 @@ def get_cohere_response(disease_name):
 def predict():
     """Handles plant disease prediction and provides remedies."""
     if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+        return jsonify({'error': 'No file uploaded'}), 400
 
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
+        return jsonify({'error': 'No file selected'}), 400
 
-    # Save the uploaded image
-    img_path = os.path.join('static/uploads', file.filename)
+    # Save uploaded file
+    img_path = os.path.join("static/uploads", file.filename)
     file.save(img_path)
 
     # Preprocess the image
@@ -101,15 +123,13 @@ def predict():
     img_array = np.expand_dims(img_array, axis=0)  
 
     try:
-        print("Model input shape:", model.input_shape)
-
         # Predict plant disease
         prediction = model.predict(img_array)
         predicted_class = np.argmax(prediction, axis=1)[0]
         confidence = np.max(prediction)
 
         # Get disease name
-        predicted_class_name = class_labels[predicted_class]
+        predicted_class_name = class_labels.get(predicted_class, "Unknown")
 
         # Get remedy from Cohere API
         remedy = get_cohere_response(predicted_class_name)
@@ -120,11 +140,8 @@ def predict():
                                image_filename=file.filename,
                                remedy=remedy)
 
-    except ValueError as e:
-        return jsonify({
-            'error': 'Model input shape mismatch. Ensure the model supports (150, 150, 3) input images.',
-            'details': str(e)
-        }), 500
+    except Exception as e:
+        return jsonify({'error': 'Prediction failed', 'details': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
