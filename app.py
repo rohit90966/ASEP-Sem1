@@ -7,9 +7,9 @@ import numpy as np
 from PIL import Image
 import cohere
 
-# Configure Cohere API Key (Set this as an environment variable for security)
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-co = cohere.Client(COHERE_API_KEY)
+# # Configure Cohere API Key (Set this as an environment variable for security)
+# COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+# co = cohere.Client(COHERE_API_KEY)
 
 # Initialize Flask app
 app = Flask(__name__)
